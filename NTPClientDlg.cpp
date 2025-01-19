@@ -1,12 +1,12 @@
 ﻿
 // NTPClientDlg.cpp: 구현 파일
-//
 
 #include "pch.h"
 #include "framework.h"
 #include "NTPClient.h"
 #include "NTPClientDlg.h"
 #include "afxdialogex.h"
+#include "CommonDefine.h"
 #include <chrono>
 #include <thread>
 
@@ -14,8 +14,6 @@
 #define new DEBUG_NEW
 #endif
 
-// 1900년 1월 1일 이후의 초 시간 계산용
-const uint64_t NTP_TIMESTAMP_DELTA = 2208988800ull;
 // 응용 프로그램 정보에 사용되는 CAboutDlg 대화 상자입니다.
 
 class CAboutDlg : public CDialogEx
@@ -63,6 +61,8 @@ void CNTPClientDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_LIST1, m_list);
+	DDX_Control(pDX, IDC_COMBO_NTP_SERVER, m_cmbServer);
+	DDX_Control(pDX, IDC_IPADDRESS1, m_ipControl);
 }
 
 BEGIN_MESSAGE_MAP(CNTPClientDlg, CDialogEx)
@@ -72,6 +72,7 @@ BEGIN_MESSAGE_MAP(CNTPClientDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_START, &CNTPClientDlg::OnBnClickedButtonStart)
 	ON_WM_CLOSE()
 	ON_MESSAGE(UM_RECV_PACKET, &CNTPClientDlg::OnRecvPacket)
+	ON_CBN_SELCHANGE(IDC_COMBO_NTP_SERVER, &CNTPClientDlg::OnCbnSelchangeComboNtpServer)
 END_MESSAGE_MAP()
 
 
@@ -107,13 +108,27 @@ BOOL CNTPClientDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 작은 아이콘을 설정합니다.
 
 	// TODO: 여기에 추가 초기화 작업을 추가합니다.
-	CString sStartIP(_T("216.239.35.0"));
-	GetDlgItem(IDC_IPADDRESS1)->SetWindowText(sStartIP);
+	int iSel = m_cmbServer.AddString(_T("KR Pool (210.103.208.198)"));
+	m_cmbServer.AddString(_T("한국 표준과학연구원 (KRISS) (203.248.240.140)"));
+	m_cmbServer.AddString(_T("한국인터넷진흥원 (KISA) (168.126.1.44)"));
+	m_cmbServer.AddString(_T("Google Public NTP (216.239.35.0)"));
+	m_cmbServer.AddString(_T("직접 입력"));
+	m_sConstIP[0] = _T("210.103.208.198");
+	m_sConstIP[1] = _T("203.248.240.140");
+	m_sConstIP[2] = _T("168.126.1.44");
+	m_sConstIP[3] = _T("216.239.35.0");
+	m_cmbServer.SetItemData(0, reinterpret_cast<DWORD_PTR>(&m_sConstIP[0]));
+	m_cmbServer.SetItemData(1, reinterpret_cast<DWORD_PTR>(&m_sConstIP[1]));
+	m_cmbServer.SetItemData(2, reinterpret_cast<DWORD_PTR>(&m_sConstIP[2]));
+	m_cmbServer.SetItemData(3, reinterpret_cast<DWORD_PTR>(&m_sConstIP[3]));
+	m_cmbServer.SetCurSel(0);
 	CString sPort(_T("123"));
 	GetDlgItem(IDC_EDIT)->SetWindowText(sPort);
-
+	m_ipControl.EnableWindow(FALSE);
 	m_client.SetOwner(this);
 	m_hClose = CreateEvent(NULL, FALSE, FALSE, NULL);
+	m_client.SetCallback(CallbackClientConnect);
+	
 	return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
 
@@ -170,36 +185,59 @@ HCURSOR CNTPClientDlg::OnQueryDragIcon()
 
 void CNTPClientDlg::OnBnClickedButtonStart()
 {
-	CString sIP, sPort;
-	GetDlgItem(IDC_IPADDRESS1)->GetWindowText(sIP);
-	GetDlgItem(IDC_EDIT)->GetWindowText(sPort);
-	char csIP[20];
-	memset(csIP, 0x00, 20);
-	memcpy(csIP, sIP, sIP.GetLength());
-
-	int iPort = _ttoi(sPort);
-	if (m_client.StartClient(csIP, iPort, 3))
+	if (m_client.GetConnect())
 	{
-		m_list.AddString(_T("NTP 서버 접속 완료"));
-		m_client.StartRecv();
-
-		std::thread sendThread(NtpRequest, this);
-		sendThread.detach();
+		//중지
+		CString sListOut;
+		sListOut.Format(_T("NTP 서버 접속 중지"));
+		m_list.AddString(sListOut);
+		GetDlgItem(IDC_BUTTON_START)->SetWindowText(_T("접속"));
 	}
 	else
 	{
-		if(m_client.GetConnect())
-			m_list.AddString(_T("NTP 서버가 이미 접속 중입니다."));
+		CString sIP, sPort, sIPName;
+		int iCurSel = m_cmbServer.GetCurSel();
+		if (iCurSel == MAX_CONST_IP)	//직접 입력 모드
+		{
+			GetDlgItem(IDC_IPADDRESS1)->GetWindowText(sIP);
+		}
 		else
-			m_list.AddString(_T("NTP 서버 접속 실패"));
+		{
+			sIP = *(reinterpret_cast<CString*>(m_cmbServer.GetItemData(iCurSel)));
+			m_cmbServer.GetLBText(iCurSel, sIPName);
+		}
+
+		GetDlgItem(IDC_EDIT)->GetWindowText(sPort);
+		char csIP[20];
+		memset(csIP, 0x00, 20);
+		memcpy(csIP, sIP, sIP.GetLength());
+
+		int iPort = _ttoi(sPort);
+		CString sListOut;
+
+		if (m_client.StartClient(csIP, iPort))
+		{
+			CString sListOut;
+			sListOut.Format(_T("%s NTP 서버 접속 완료"), sIPName);
+			m_list.AddString(sListOut);
+			m_client.StartRecv();
+
+			std::thread sendThread(NtpRequest, this);
+			sendThread.detach();
+			GetDlgItem(IDC_BUTTON_START)->SetWindowText(_T("중지"));
+		}
+		else
+		{
+			sListOut.Format(_T("%s NTP 서버 접속 실패"), sIPName);
+			m_list.AddString(sListOut);
+		}
 	}
 }
 
 
 void CNTPClientDlg::OnClose()
 {
-	// TODO: 여기에 메시지 처리기 코드를 추가 및/또는 기본값을 호출합니다.
-	SetEvent(m_client.m_hClose);
+	SetEvent(m_client.GetCloseHandle());
 	SetEvent(m_hClose);
 	CDialogEx::OnClose();
 }
@@ -243,8 +281,13 @@ void CNTPClientDlg::NtpRequestProc()
 			char packet[NTP_PACKET_SIZE];
 			memset(packet, 0x00, NTP_PACKET_SIZE);
 
+			/*
+			NTP는 1900년 1월 1일부터 시작되는 시간을 기준으로 함.
+			시스템 시간에는 1970년 1월 1일을 기준으로 함
+			두 시스템간에는 70년의 시간 차이가 있음(2208988800초)
+			*/
 			packet[0] = 0x1B;
-			auto now = std::chrono::system_clock::now().time_since_epoch(); //현재 시스템 시간을 UTC 이후 경과시간으로 반환
+			auto now = std::chrono::system_clock::now().time_since_epoch(); //현재 시스템 시간을 UTC(epohc) 이후 경과시간으로 반환
 			auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now).count(); //경과시간 초단위 반환
 			UINT64 ntpTime = seconds + NTP_TIMESTAMP_DELTA;
 
@@ -265,11 +308,35 @@ void CNTPClientDlg::NtpRequestProc()
 				m_list.AddString(_T("클라이언트 Send 성공\n"));
 				OutputDebugString(_T("클라이언트 Send 성공\n"));
 			}
-
-
 		}
+	}
+}
 
+void CNTPClientDlg::CallbackClientConnect(bool bResult)
+{
+	if (bResult == TRUE)
+	{
+
+	}
+	else
+	{
 
 	}
 }
 
+
+
+void CNTPClientDlg::OnCbnSelchangeComboNtpServer()
+{
+	int iSel = m_cmbServer.GetCurSel();
+	if (iSel < MAX_CONST_IP)
+	{
+		CString sIP = *(CString*)m_cmbServer.GetItemData(iSel);
+		OutputDebugString(sIP);
+		m_ipControl.EnableWindow(FALSE);
+	}
+	else
+	{
+		m_ipControl.EnableWindow(TRUE);
+	}
+}

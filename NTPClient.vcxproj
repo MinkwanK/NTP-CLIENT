@@ -185,6 +185,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Client.h" />
+    <ClInclude Include="CommonDefine.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="NTPClient.h" />
     <ClInclude Include="NTPClientDlg.h" />

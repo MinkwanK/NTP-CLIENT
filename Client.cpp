@@ -4,9 +4,7 @@
 #include <thread>
 #include "Client.h"
 #include <ctime>
-
-// 1900년 1월 1일 이후의 초 시간 계산용
-const uint64_t NTP_TIMESTAMP_DELTA = 2208988800ull;
+#include "CommonDefine.h"
 
 CClient::CClient()
 {
@@ -27,48 +25,60 @@ CClient::CClient()
 CClient::~CClient()
 {
 	WSACleanup();
+
+	if (m_hClose)
+	{
+		CloseHandle(m_hClose);
+		m_hClose = nullptr;;
+	}
 }
 
-//논 블록 클라이언트 시작
-BOOL CClient::StartClient(char* csIP, int iPort, int iTimeout)
+//논블록 클라이언트 시작
+bool CClient::StartClient(char* csIP, int iPort)
 {
-	if (m_bConnected)
+	if (m_bClientConnected)
+	{
+		OutputDebugString(_T("이미 접속 중입니다.\n"));
 		return FALSE;
+	}
 
 	strncpy_s(m_csIP, sizeof(m_csIP), csIP, _TRUNCATE);
 	m_iPort = iPort;
-	m_iTimeout = iTimeout;
-
-	memset(&m_ServerAddr, 0, sizeof(m_ServerAddr));
+	
+	memset(&m_ServerAddr, 0x00, sizeof(m_ServerAddr));
 
 	m_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (m_sock == INVALID_SOCKET)
 	{
 		closesocket(m_sock);
 		m_sock = INVALID_SOCKET;
+		OutputDebugString(_T("소켓 생성 실패 \n"));
 		return FALSE;
 	}
 
-	u_long mode = 1;	
+	u_long mode = 1;
 	if (ioctlsocket(m_sock, FIONBIO, &mode) != NO_ERROR)
 	{
+		OutputDebugString(_T("논블록 소켓 설정 실패\n"));
 		closesocket(m_sock);
 		m_sock = INVALID_SOCKET;
 		return FALSE;
 	}
+
 	m_ServerAddr.sin_family = AF_INET;
 	m_ServerAddr.sin_port = htons(iPort);
 	inet_pton(AF_INET, m_csIP, &(m_ServerAddr.sin_addr.s_addr));
+
 	CString sIP;
 	sIP.Format(_T("%s \n"), m_csIP);
-	OutputDebugString(sIP);
+
 	while (TRUE)
 	{
-		WaitForSingleObject(m_hClose, iTimeout *1000);
+		WaitForSingleObject(m_hClose, 1000);
 
 		if (WAIT_OBJECT_0)
 			return FALSE;
-		
+
 
 		int iResult = connect(m_sock, (struct sockaddr*)&m_ServerAddr, sizeof(m_ServerAddr));
 		if (iResult == SOCKET_ERROR)
@@ -81,7 +91,7 @@ BOOL CClient::StartClient(char* csIP, int iPort, int iTimeout)
 				int	iRet;
 
 				memset(&timeout, 0x00, sizeof(timeout));
-				timeout.tv_sec = iTimeout;
+				timeout.tv_sec = m_timeout.iConnect;
 				timeout.tv_usec = 0;
 
 				FD_ZERO(&fdSend);
@@ -101,7 +111,7 @@ BOOL CClient::StartClient(char* csIP, int iPort, int iTimeout)
 					OutputDebugString(_T("클라이언트 접속 실패: FD_SET 쓰기 가능 상태 X\n"));
 					continue;
 				}
-				m_bConnected = TRUE;
+				m_bClientConnected = TRUE;
 				OutputDebugString(_T("클라이언트 접속 성공\n"));
 				return true;
 			}
@@ -114,16 +124,11 @@ BOOL CClient::StartClient(char* csIP, int iPort, int iTimeout)
 		}
 		else
 		{
-			m_bConnected = TRUE;
+			m_bClientConnected = TRUE;
 			OutputDebugString(_T("클라이언트 접속 성공\n"));
 			return true;
 		}
 	}
-}
-
-BOOL CClient::StartClient(char* csIP, int iPort)
-{
-	return 0;
 }
 
 void CClient::StartRecv()
@@ -132,19 +137,18 @@ void CClient::StartRecv()
 	recv.detach();
 }
 
-BOOL CClient::RecvThread(CClient* pClient)
+bool CClient::RecvThread(CClient* pClient)
 {
 	if (pClient)
 		return pClient->RecvProc();
 	return FALSE;
 }
 
-
 /*
 수신 스레드
 연결 끊김 및 오류 발생시 재접속 시도
 */
-BOOL CClient::RecvProc()
+bool CClient::RecvProc()
 {
 	OutputDebugString(_T("클라이언트 Recv 스레드 시작\n"));
 	struct timeval timeout;
@@ -180,44 +184,9 @@ BOOL CClient::RecvProc()
 	
 		if (iRet == NTP_PACKET_SIZE)
 		{
-			//ntp_packet ntp = { 0 };
-			//memcpy(&ntp, buf, NTP_PACKET_SIZE);
-
+			//NTP 타임스탬프는 64비트 값. 상위 32비트는 초, 하위 32비트는 소수부
 			uint32_t originSecond, originFraction;
 			originSecond = (buf[24] << 24 | (buf[24 + 1] << 16) | (buf[24 + 2] << 8) | buf[24+3]);
-
-			//NTP 타임스탬프는 64비트 값. 상위 32비트는 초, 하위 32비트는 sosubu
-			//uint32_t secondsSince1900 = (buf[43] & 0xFF) | (buf[42] & 0xFF) << 8 | (buf[41] & 0xFF) << 16 | (buf[40] & 0xFF) << 24;
-			//time_t  timestamp = secondsSince1900 - NTP_TIMESTAMP_DELTA;	//NTP 시간 -> unix 시간 변환
-
-			//std::chrono::system_clock::time_point server_time = std::chrono::system_clock::from_time_t(timestamp);
-			//server_time += one_way_delay;  // 편도 지연 시간 적용
-
-			//auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(one_way_delay).count(); //밀리초 변환
-
-			//CString strDelay;
-			//strDelay.Format(_T("지연 시간: %lld 밀리초\n"), milliseconds);  // %lld는 long long 정수형 포맷
-			//OutputDebugString(strDelay);
-
-			//timestamp = std::chrono::system_clock::to_time_t(server_time);
-			//SYSTEMTIME st;
-			//UnixTimeToSystemTime(timestamp, &st);
-
-			//// 10. 시스템 시간 설정 (관리자 권한 필요)
-			//if (!SetSystemTime(&st)) 
-			//{
-			//	DWORD error = GetLastError();
-			//	CString sError;
-			//	sError.Format(_T("시스템 에러: %d"), error);
-			//	OutputDebugString(sError);
-			//	m_pOwner->PostMessage(UM_RECV_PACKET, NULL, (LPARAM)NTP_SET_FAILED);
-			//}
-			//else {
-			//	//로직 수행
-			//	m_pOwner->PostMessage(UM_RECV_PACKET, NULL, (LPARAM)NTP_SET_SUCCESS);
-			//	OutputDebugString(_T("시스템 타임 설정 성공\n"));
-			//}
-
 		}
 	}
 
@@ -230,7 +199,7 @@ BOOL CClient::RecvProc()
 	return 0;
 }
 
-BOOL CClient::Send(char* pBuf)
+bool CClient::Send(char* pBuf)
 {
 	int iResult = 0;
 	if (pBuf)
@@ -241,18 +210,17 @@ BOOL CClient::Send(char* pBuf)
 	return iResult;
 }
 
-
 void CClient::Disconnect()
 {
 	closesocket(m_sock);
 	m_sock = INVALID_SOCKET;
-	m_bConnected = FALSE;
+	m_bClientConnected = FALSE;
 }
 
 void CClient::Reconnect()
 {
 	Disconnect();
-	StartClient(m_csIP, m_iPort, m_iTimeout);
+	StartClient(m_csIP, m_iPort);
 }
 
 void CClient::UnixTimeToSystemTime(time_t t, SYSTEMTIME* st)
@@ -271,5 +239,26 @@ void CClient::UnixTimeToSystemTime(time_t t, SYSTEMTIME* st)
 		st->wSecond = tm.tm_sec;
 		st->wMilliseconds = 0;
 	}
-	
+}
+
+void CClient::SetTimeout(int iConnect, int iRecv, int iSend)
+{
+	m_timeout.iConnect = iConnect;
+	m_timeout.iRecv = iRecv;
+	m_timeout.iSend = iSend;
+}
+
+HANDLE CClient::GetCloseHandle()
+{
+	return m_hClose;
+}
+
+void CClient::SetCloseHandle()
+{
+	SetEvent(m_hClose);
+}
+
+void CClient::SetCallback(Callback cbConnect)
+{
+	m_cbConnect = cbConnect;
 }

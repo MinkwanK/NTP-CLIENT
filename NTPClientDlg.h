@@ -4,9 +4,9 @@
 #include "Client.h"
 #pragma once
 
-#define UM_RECV_PACKET		(WM_USER + 3000)
-#define NTP_SEND_CYCLE		5000
-#define NTP_PACKET_SIZE		48
+
+#define MAX_CONST_IP		4
+
 // CNTPClientDlg 대화 상자
 class CNTPClientDlg : public CDialogEx
 {
@@ -17,6 +17,11 @@ public:
 public:
 	CClient m_client;
 	HANDLE m_hClose;
+	CListBox m_list;
+	CComboBox m_cmbServer;
+	CString m_sConstIP[MAX_CONST_IP];
+	CIPAddressCtrl m_ipControl;
+
 // 대화 상자 데이터입니다.
 #ifdef AFX_DESIGN_TIME
 	enum { IDD = IDD_NTPCLIENT_DIALOG };
@@ -40,8 +45,13 @@ public:
 	afx_msg void OnBnClickedButtonStart();
 	afx_msg void OnClose();
 	afx_msg LRESULT OnRecvPacket(WPARAM wParam, LPARAM lParam);
-
+	afx_msg void OnCbnSelchangeComboNtpServer();
 	static void NtpRequest(CNTPClientDlg* pDlg);
-	void	NtpRequestProc();
-	CListBox m_list;
+	void NtpRequestProc();
+
+
+	//멤버 함수는 특정 객체 에속한다. 호출시 암묵적으로 &객체 멤버변수가 들어감
+	//static을 붙이면 객체에 종속되지 않아서 일반 함수처럼 주소를 할당 가능
+	static void CallbackClientConnect(bool bResult);
+
 };
