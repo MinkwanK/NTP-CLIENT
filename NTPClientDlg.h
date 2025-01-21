@@ -53,5 +53,7 @@ public:
 	//멤버 함수는 특정 객체 에속한다. 호출시 암묵적으로 &객체 멤버변수가 들어감
 	//static을 붙이면 객체에 종속되지 않아서 일반 함수처럼 주소를 할당 가능
 	static void CallbackClientConnect(bool bResult);
+	static void CallbackClientSend(bool bResult, int iSentSize, CString sIP);
+
 
 };

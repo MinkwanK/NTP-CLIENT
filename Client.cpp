@@ -199,15 +199,22 @@ bool CClient::RecvProc()
 	return 0;
 }
 
-bool CClient::Send(char* pBuf)
+void CClient::Send(char* pBuf)
 {
 	int iResult = 0;
+	bool bResult = FALSE;
 	if (pBuf)
 	{
 		iResult = sendto(m_sock, pBuf, NTP_PACKET_SIZE, 0, (sockaddr*)&m_ServerAddr, sizeof(m_ServerAddr));
 		ntp_rtt[0] = std::chrono::system_clock::now();	//송신 시간 기록
 	}
-	return iResult;
+
+	CString sIP(m_csIP);
+
+	if (iResult > 0)
+		bResult = TRUE;
+	
+	m_cbSend(bResult, iResult, sIP);
 }
 
 void CClient::Disconnect()
@@ -258,7 +265,8 @@ void CClient::SetCloseHandle()
 	SetEvent(m_hClose);
 }
 
-void CClient::SetCallback(Callback cbConnect)
+void CClient::SetCallback(Callback cbConnect, CallbackSend cbSend)
 {
 	m_cbConnect = cbConnect;
+	m_cbSend = cbSend;
 }

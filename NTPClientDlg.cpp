@@ -127,7 +127,7 @@ BOOL CNTPClientDlg::OnInitDialog()
 	m_ipControl.EnableWindow(FALSE);
 	m_client.SetOwner(this);
 	m_hClose = CreateEvent(NULL, FALSE, FALSE, NULL);
-	m_client.SetCallback(CallbackClientConnect);
+	m_client.SetCallback(CallbackClientConnect,CallbackClientSend);
 	
 	return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
@@ -297,17 +297,8 @@ void CNTPClientDlg::NtpRequestProc()
 			packet[42] = (ntpTime >> 8) & 0xFF;
 			packet[43] = ntpTime & 0xFF;
 
-			int iResult = m_client.Send(packet);
-			if (iResult <= 0)
-			{
-				m_list.AddString(_T("클라이언트 Send 실패\n"));
-				OutputDebugString(_T("클라이언트 Send 실패\n"));
-			}
-			else
-			{
-				m_list.AddString(_T("클라이언트 Send 성공\n"));
-				OutputDebugString(_T("클라이언트 Send 성공\n"));
-			}
+			m_client.Send(packet);
+
 		}
 	}
 }
@@ -324,7 +315,23 @@ void CNTPClientDlg::CallbackClientConnect(bool bResult)
 	}
 }
 
+void CNTPClientDlg::CallbackClientSend(bool bResult, int iSentSize, CString sIP)
+{
+	CString sMsg;
 
+	if (bResult)
+	{
+		sMsg.Format(_T("[Send 성공] %d size send 성공 :: %s IP"), iSentSize, sIP);
+
+	}
+	else
+	{
+		sMsg.Format(_T("[Send 실패] %d size send 실패 :: %s IP"), iSentSize, sIP);
+	}
+
+
+	OutputDebugString(sMsg);
+}
 
 void CNTPClientDlg::OnCbnSelchangeComboNtpServer()
 {

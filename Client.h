@@ -4,7 +4,7 @@
 #define RECV_WAIT_TIME		1000
 
 using Callback = void (*)(bool);
-
+using CallbackSend = void(*)(bool, int, CString);
 enum RECV_PACKET_CODE
 {
 	NTP_SET_FAILED,
@@ -31,7 +31,7 @@ public:
 	static bool RecvThread(CClient* pClient);
 	bool RecvProc();
 
-	bool Send(char* pBuf);
+	void Send(char* pBuf);
 	void SetOwner(CWnd* pOwner) { if(pOwner) m_pOwner = pOwner; }
 	bool GetConnect() { return m_bClientConnected; }
 	void Disconnect();
@@ -43,7 +43,8 @@ public:
 	void SetCloseHandle();
 
 	Callback m_cbConnect;
-	void SetCallback(Callback cbConnect);
+	CallbackSend m_cbSend;
+	void SetCallback(Callback cbConnect, CallbackSend cbSend);
 
 public:
 	CWnd* m_pOwner;
